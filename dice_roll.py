@@ -7,13 +7,11 @@ import threading
 
 app = Flask(__name__)
 
-# Global state (now thread-safe)
+# Global state (thread-safe)
 counter = 0
 roll_log = deque(maxlen=20)
-auto_rolling = False
-auto_rps = 5
 start_time = datetime.datetime.now()
-state_lock = threading.Lock()  # Protects shared state
+state_lock = threading.Lock()
 
 
 HTML_TEMPLATE = '''
@@ -58,7 +56,7 @@ HTML_TEMPLATE = '''
 <body>
     <div class="header">
         <h1>🎲 Alibaba Cloud ACS Dice Roller</h1>
-        <div class="dice-display" id="dice">{{ last_roll if last_roll else '?' }}</div>
+        <div class="dice-display" id="dice">?</div>
     </div>
 
     <div class="pod-info">
@@ -68,24 +66,20 @@ HTML_TEMPLATE = '''
     </div>
 
     <div class="controls">
-        <button class="btn" onclick="rollOnce()">Roll Dice Once</button>
-        
-        {% if auto_rolling %}
-            <button class="btn btn-stop" onclick="stopAutoRoll()">Stop Rolling</button>
-        {% else %}
-            <button class="btn" onclick="startAutoRoll()">Keep Rolling ({{ auto_rps }} RPS)</button>
-        {% endif %}
+        <button id="actionBtn" class="btn" onclick="toggleRolling()">
+            Keep Rolling
+        </button>
         
         <div class="rps-control">
             <label for="rps">Rolls/sec:</label>
-            <input type="range" id="rps" min="1" max="30" value="{{ auto_rps }}" 
-                   oninput="updateRps(this.value)" style="width: 150px;">
-            <span id="rps-value">{{ auto_rps }}</span>
+            <input type="range" id="rps" min="1" max="30" value="5" 
+                   oninput="updateRpsLabel()" style="width: 150px;">
+            <span id="rps-value">5</span>
         </div>
     </div>
 
-    <div class="status-bar {{ 'status-active' if auto_rolling else 'status-idle' }}">
-        Status: {{ 'ROLLING CONTINUOUSLY' if auto_rolling else 'IDLE' }}
+    <div class="status-bar status-idle" id="statusBar">
+        Status: IDLE
     </div>
 
     <h3>Recent Rolls</h3>
@@ -96,8 +90,51 @@ HTML_TEMPLATE = '''
     </div>
 
     <script>
-        let autoRolling = {{ 'true' if auto_rolling else 'false' }};
-        let rps = {{ auto_rps }};
+        let autoRolling = false;
+        let rps = 5;
+
+        function updateUI() {
+            const btn = document.getElementById('actionBtn');
+            const status = document.getElementById('statusBar');
+            const isRolling = autoRolling;
+
+            // Update button
+            if (isRolling) {
+                btn.textContent = 'Stop Rolling';
+                btn.className = 'btn btn-stop';
+            } else {
+                btn.textContent = 'Keep Rolling';
+                btn.className = 'btn';
+            }
+
+            // Update status bar
+            status.textContent = isRolling ? 'Status: ROLLING CONTINUOUSLY' : 'Status: IDLE';
+            status.className = isRolling 
+                ? 'status-bar status-active' 
+                : 'status-bar status-idle';
+        }
+
+        function updateRpsLabel() {
+            rps = parseInt(document.getElementById('rps').value);
+            document.getElementById('rps-value').textContent = rps;
+        }
+
+        function rollOnce() {
+            fetch('/roll')
+                .then(res => res.json())
+                .then(data => {
+                    updateDice(data.result);
+                    updateLog();
+                })
+                .catch(console.error);
+        }
+
+        function updateDice(value) {
+            const dice = document.getElementById('dice');
+            dice.textContent = value;
+            dice.classList.add('roll-active');
+            setTimeout(() => dice.classList.remove('roll-active'), 300);
+        }
 
         function updateLog() {
             fetch('/api/log')
@@ -111,30 +148,15 @@ HTML_TEMPLATE = '''
                         logDiv.appendChild(div);
                     });
                     logDiv.scrollTop = logDiv.scrollHeight;
-                });
-        }
 
-        function updateDice(value) {
-            const dice = document.getElementById('dice');
-            dice.textContent = value;
-            dice.classList.add('roll-active');
-            setTimeout(() => dice.classList.remove('roll-active'), 300);
-        }
-
-        function rollOnce() {
-            fetch('/roll')
-                .then(res => res.json())
-                .then(data => {
-                    updateDice(data.result);
-                    updateLog();
-                });
-        }
-
-        function startAutoRoll() {
-            rps = parseInt(document.getElementById('rps').value);
-            autoRolling = true;
-            document.getElementById('rps-value').textContent = rps;
-            sendAutoRoll();
+                    // Update last roll from log
+                    if (data.log.length > 0) {
+                        const lastEntry = data.log[data.log.length - 1];
+                        const result = lastEntry.split('rolled: ')[1] || '?';
+                        document.getElementById('dice').textContent = result;
+                    }
+                })
+                .catch(console.error);
         }
 
         function sendAutoRoll() {
@@ -145,18 +167,17 @@ HTML_TEMPLATE = '''
             setTimeout(sendAutoRoll, 1000 / rps);
         }
 
-        function stopAutoRoll() {
-            autoRolling = false;
-        }
-
-        function updateRps(value) {
-            document.getElementById('rps-value').textContent = value;
+        function toggleRolling() {
+            autoRolling = !autoRolling;
+            updateUI();
             if (autoRolling) {
-                rps = parseInt(value);
+                sendAutoRoll();
             }
         }
 
-        // Initial load
+        // Initialize
+        updateRpsLabel();
+        updateUI();
         updateLog();
         setInterval(updateLog, 2000);
     </script>
@@ -171,12 +192,10 @@ def get_uptime():
 
 @app.route('/')
 def home():
-    global counter, roll_log, auto_rolling, auto_rps
+    global counter, roll_log
     with state_lock:
         last_roll = roll_log[-1].split(': ')[-1] if roll_log else '?'
         current_counter = counter
-        current_auto_rolling = auto_rolling
-        current_auto_rps = auto_rps
         current_roll_log = list(roll_log)
     
     return render_template_string(
@@ -185,9 +204,7 @@ def home():
         counter=current_counter,
         uptime=get_uptime(),
         roll_log=current_roll_log,
-        last_roll=last_roll,
-        auto_rolling=current_auto_rolling,
-        auto_rps=current_auto_rps
+        last_roll=last_roll
     )
 
 
