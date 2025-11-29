@@ -23,7 +23,10 @@ HTML_TEMPLATE = '''
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 20px; background: #f9f9f9; }
         .header { text-align: center; margin-bottom: 30px; }
-        .pod-info { background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; font-size: 14px; }
+        .pod-info { 
+            background: #e9ecef; padding: 15px; border-radius: 8px; 
+            margin: 20px 0; font-size: 14px; text-align: center;
+        }
         .dice-display { 
             font-size: 80px; text-align: center; margin: 20px 0; 
             transition: transform 0.3s ease; 
@@ -51,6 +54,10 @@ HTML_TEMPLATE = '''
         .controls { text-align: center; margin: 20px 0; }
         .rps-control { margin-top: 10px; }
         .rps-control label { margin-right: 10px; }
+        .note { 
+            font-size: 12px; color: #666; margin-top: -10px; text-align: center; 
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -60,12 +67,13 @@ HTML_TEMPLATE = '''
     </div>
 
     <div class="pod-info">
-        <strong>Pod:</strong> {{ pod_name }} | 
-        <strong>Requests:</strong> {{ counter }} | 
-        <strong>Uptime:</strong> {{ uptime }}
+        <strong>Current Pod:</strong> <span id="pod-name">{{ pod_name }}</span> | 
+        <strong>Requests Handled by This Pod:</strong> <span id="request-count">{{ counter }}</span> | 
+        <strong>Uptime:</strong> <span id="uptime">{{ uptime }}</span>
     </div>
 
     <div class="controls">
+        <button class="btn" onclick="rollOnce()">Roll Dice Once</button>
         <button id="actionBtn" class="btn" onclick="toggleRolling()">
             Keep Rolling
         </button>
@@ -82,12 +90,16 @@ HTML_TEMPLATE = '''
         Status: IDLE
     </div>
 
-    <h3>Recent Rolls</h3>
+    <h3>Recent Rolls (from this pod only)</h3>
     <div class="log-container" id="log">
         {% for entry in roll_log|reverse %}
             <div>{{ entry }}</div>
         {% endfor %}
     </div>
+    <p class="note">
+        💡 Refresh the page to see a different pod. In a scaled deployment, 
+        each pod tracks its own rolls independently!
+    </p>
 
     <script>
         let autoRolling = false;
@@ -98,7 +110,6 @@ HTML_TEMPLATE = '''
             const status = document.getElementById('statusBar');
             const isRolling = autoRolling;
 
-            // Update button
             if (isRolling) {
                 btn.textContent = 'Stop Rolling';
                 btn.className = 'btn btn-stop';
@@ -107,7 +118,6 @@ HTML_TEMPLATE = '''
                 btn.className = 'btn';
             }
 
-            // Update status bar
             status.textContent = isRolling ? 'Status: ROLLING CONTINUOUSLY' : 'Status: IDLE';
             status.className = isRolling 
                 ? 'status-bar status-active' 
@@ -117,6 +127,16 @@ HTML_TEMPLATE = '''
         function updateRpsLabel() {
             rps = parseInt(document.getElementById('rps').value);
             document.getElementById('rps-value').textContent = rps;
+        }
+
+        function updateMetrics() {
+            fetch('/api/metrics')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('request-count').textContent = data.counter;
+                    document.getElementById('uptime').textContent = data.uptime;
+                })
+                .catch(console.error);
         }
 
         function rollOnce() {
@@ -149,7 +169,6 @@ HTML_TEMPLATE = '''
                     });
                     logDiv.scrollTop = logDiv.scrollHeight;
 
-                    // Update last roll from log
                     if (data.log.length > 0) {
                         const lastEntry = data.log[data.log.length - 1];
                         const result = lastEntry.split('rolled: ')[1] || '?';
@@ -179,7 +198,10 @@ HTML_TEMPLATE = '''
         updateRpsLabel();
         updateUI();
         updateLog();
+        updateMetrics();
+        
         setInterval(updateLog, 2000);
+        setInterval(updateMetrics, 2000);
     </script>
 </body>
 </html>
@@ -224,6 +246,16 @@ def get_log():
     with state_lock:
         current_log = list(roll_log)
     return jsonify({"log": current_log})
+
+
+@app.route('/api/metrics')
+def get_metrics():
+    with state_lock:
+        current_counter = counter
+    return jsonify({
+        "counter": current_counter,
+        "uptime": get_uptime()
+    })
 
 
 if __name__ == '__main__':
