@@ -14,6 +14,20 @@ start_time = datetime.datetime.now()
 state_lock = threading.Lock()
 
 
+# 🔥 CPU-Intensive Workload: Prime Number Calculation
+def find_primes_up_to(n):
+    """Generate primes up to n — tuned for ~60% CPU on 0.5-core pods at 15-20 RPS"""
+    if n < 2:
+        return []
+    sieve = [True] * (n + 1)
+    sieve[0] = sieve[1] = False
+    for i in range(2, int(n ** 0.5) + 1):
+        if sieve[i]:
+            for j in range(i * i, n + 1, i):
+                sieve[j] = False
+    return [i for i, prime in enumerate(sieve) if prime]
+
+
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
@@ -80,9 +94,9 @@ HTML_TEMPLATE = '''
         
         <div class="rps-control">
             <label for="rps">Rolls/sec:</label>
-            <input type="range" id="rps" min="1" max="30" value="5" 
+            <input type="range" id="rps" min="1" max="30" value="15" 
                    oninput="updateRpsLabel()" style="width: 150px;">
-            <span id="rps-value">5</span>
+            <span id="rps-value">15</span>
         </div>
     </div>
 
@@ -103,7 +117,7 @@ HTML_TEMPLATE = '''
 
     <script>
         let autoRolling = false;
-        let rps = 5;
+        let rps = 15;
 
         function updateUI() {
             const btn = document.getElementById('actionBtn');
@@ -238,6 +252,10 @@ def roll_dice():
         result = random.randint(1, 6)
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         roll_log.append(f"[{timestamp}] Pod {os.getenv('HOSTNAME')} rolled: {result}")
+    
+    # 🔥 TUNED FOR 0.5 CPU PODS: Generates ~60% CPU at 15-20 RPS
+    _ = find_primes_up_to(7000)  # Adjust if needed: 6000=light, 8000=heavy
+    
     return jsonify({"result": result})
 
 
