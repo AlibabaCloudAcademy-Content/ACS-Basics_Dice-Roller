@@ -1,19 +1,20 @@
 from flask import Flask, render_template_string, jsonify
 import os
-import time
-import threading
 import random
 import datetime
 from collections import deque
+import threading
 
 app = Flask(__name__)
 
-# Global state (safe for single-threaded demo)
+# Global state (now thread-safe)
 counter = 0
 roll_log = deque(maxlen=20)
 auto_rolling = False
 auto_rps = 5
 start_time = datetime.datetime.now()
+state_lock = threading.Lock()  # Protects shared state
+
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -163,36 +164,50 @@ HTML_TEMPLATE = '''
 </html>
 '''
 
+
 def get_uptime():
     return str(datetime.datetime.now() - start_time).split('.')[0]
 
+
 @app.route('/')
 def home():
-    global counter
-    last_roll = roll_log[-1].split(': ')[-1] if roll_log else '?'
+    global counter, roll_log, auto_rolling, auto_rps
+    with state_lock:
+        last_roll = roll_log[-1].split(': ')[-1] if roll_log else '?'
+        current_counter = counter
+        current_auto_rolling = auto_rolling
+        current_auto_rps = auto_rps
+        current_roll_log = list(roll_log)
+    
     return render_template_string(
         HTML_TEMPLATE,
         pod_name=os.getenv('HOSTNAME', 'unknown'),
-        counter=counter,
+        counter=current_counter,
         uptime=get_uptime(),
-        roll_log=list(roll_log),
+        roll_log=current_roll_log,
         last_roll=last_roll,
-        auto_rolling=auto_rolling,
-        auto_rps=auto_rps
+        auto_rolling=current_auto_rolling,
+        auto_rps=current_auto_rps
     )
+
 
 @app.route('/roll')
 def roll_dice():
-    global counter
-    counter += 1
-    result = random.randint(1, 6)
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    roll_log.append(f"[{timestamp}] Pod {os.getenv('HOSTNAME')} rolled: {result}")
+    global counter, roll_log
+    with state_lock:
+        counter += 1
+        result = random.randint(1, 6)
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        roll_log.append(f"[{timestamp}] Pod {os.getenv('HOSTNAME')} rolled: {result}")
     return jsonify({"result": result})
+
 
 @app.route('/api/log')
 def get_log():
-    return jsonify({"log": list(roll_log)})
+    with state_lock:
+        current_log = list(roll_log)
+    return jsonify({"log": current_log})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, threaded=True)
