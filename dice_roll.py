@@ -15,6 +15,14 @@ start_time = datetime.datetime.now()
 state_lock = threading.Lock()
 
 
+def burn_cpu(seconds):
+    """Burn CPU for approximately `seconds` seconds using a tight loop."""
+    end_time = time.time() + seconds
+    while time.time() < end_time:
+        # Perform a lightweight but CPU-consuming operation
+        _ = 3.141592653589793 ** 2  # Fast, no I/O, keeps CPU busy
+
+
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
@@ -287,8 +295,8 @@ def roll_dice():
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         roll_log.append(f"[{timestamp}] Pod {os.getenv('HOSTNAME')} rolled: {result}")
     
-    # 🔥 Simulate 1-second real-world work (e.g., API call, DB query)
-    time.sleep(1)
+    # 🔥 Replace sleep with real CPU work (~0.9 seconds of 100% CPU on one core)
+    burn_cpu(0.9)
     
     return jsonify({"result": result})
 
