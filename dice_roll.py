@@ -27,7 +27,7 @@ HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>🎲 ACS Dice Roller</title>
+    <title>🎲 ACS Dice Roller Demo</title>
     <meta charset="utf-8">
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 20px; background: #f9f9f9; }
